@@ -26,29 +26,6 @@ HSTEP, VSTEP = 13, 18
 
 SCROLL_STEP = 100
 
-def layout(tokens):
-    display_list = []
-    cursor_x, cursor_y = HSTEP, VSTEP
-    for tok in tokens:
-        w = font.measure(word)
-        if isinstance(tok, Text):
-            for word in tok.text.split():
-                font = tkinter.font.Font(size=16, weight=weight, slant=style,)
-                display_list.append((cursor_x, cursor_y, word, font))
-                cursor_x += w + font.measure(" ")
-                if cursor_x + w >= WIDTH - HSTEP:
-                    cursor_y += font.metrics("linespace") * 1.25
-                    cursor_x = HSTEP
-        elif tok.tag == "i":
-            style = "italic"
-        elif tok.tag == "/i":
-            style = "roman"
-        elif tok.tag == "b":
-            weight = "bold"
-        elif tok.tag == "/b":
-            weight = "normal"
-    return display_list
-
 class Browser:
     def __init__(self):
         self.window = tkinter.Tk()
@@ -59,34 +36,98 @@ class Browser:
         )
 
         self.canvas.pack()
-
+        self.display_list = []
         self.scroll = 0
         self.window.bind("<Down>", self.scrolldown)
+        self.window.bind("<Up>", self.scrollup)
 
     def load(self, url):
         body = url.request()
-        text = lex(body)
-        self.display_list = layout(text)
+        tokens = lex(body)
+        self.display_list = Layout(tokens).display_list
         self.draw()
 
     def draw(self):
         self.canvas.delete("all")
-        for x, y, c, d in self.display_list:
+        for x, y, word, font in self.display_list:
             if y > self.scroll + HEIGHT: continue
-            if y + VSTEP < self.scroll: continue
-            self.canvas.create_text(x, y - self.scroll, text=c, anchor='nw', font=d)
+            if y + font.metrics("linespace") < self.scroll: continue
+            self.canvas.create_text(x, y - self.scroll, text=word, font=font, anchor="nw")
 
     def scrolldown(self, e):
         self.scroll += SCROLL_STEP
         self.draw()
 
-Class Text:
+    def scrollup(self, e):
+        self.scroll -= SCROLL_STEP
+        self.draw()
+
+class Text:
     def __init__(self, text):
         self.text = text
 
-Class Tag:
+class Tag:
     def __init__(self, tag):
         self.tag = tag
+
+class Layout:
+    def __init__(self, tokens):
+        self.display_list = []
+        self.cursor_x, self.cursor_y = HSTEP, VSTEP
+        self.weight = "normal"
+        self.style = "roman"
+        self.size = 12
+        self.line = []
+        for tok in tokens:
+            self.token(tok)
+        self.flush()
+
+    def token(self, tok):
+        if isinstance(tok, Text):
+            for word in tok.text.split():
+                self.word(word)
+        elif tok.tag == "i":
+            style = "italic"
+        elif tok.tag == "/i":
+            style = "roman"
+        elif tok.tag == "b":
+            weight = "bold"
+        elif tok.tag == "/b":
+            weight = "normal"
+        elif tok.tag == "small":
+            self.size -= 2
+        elif tok.tag == "/small":
+            self.size += 2
+        elif tok.tag == "big":
+            self.size += 4
+        elif tok.tag == "/big":
+            self.size -= 4
+        elif tok.tag == "br":
+            self.flush()
+        elif tok.tag == "/p":
+            self.flush()
+            self.cursor_y += VSTEP
+
+    def word(self, word):
+        font = tkinter.font.Font(size=self.size, weight=self.weight, slant=self.style, )
+        w = font.measure(word)
+        if self.cursor_x + w > WIDTH - HSTEP:
+            self.flush()
+        self.line.append((self.cursor_x, word, font))
+        self.cursor_x += w + font.measure(" ")
+
+    def flush(self):
+        if not self.line: return
+        metrics = [font.metrics() for x, word, font in self.line]
+        max_ascent = max([metric["ascent"] for metric in metrics])
+        baseline = self.cursor_y + 1.25 * max_ascent
+        for x, word, font in self.line:
+            y = baseline - font.metrics("ascent")
+            self.display_list.append((x, y, word, font))
+        max_descent = max([metric["descent"] for metric in metrics])
+        self.cursor_y = baseline + 1.25 * max_descent
+        self.cursor_x = HSTEP
+        self.line = []
 
 if __name__ == "__main__":
     import sys
